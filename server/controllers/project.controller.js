@@ -7,6 +7,31 @@ const { analyzeCode } = require('../src/services/ai.service');
 
 const TOTAL_STAGES = 5;
 
+const STAGE_SLUGS = {
+  frontend: 1,
+  backend: 2,
+  database: 3,
+  auth: 4,
+  deploy: 5,
+};
+const STAGE_NAMES_BY_NUMBER = Object.fromEntries(Object.entries(STAGE_SLUGS).map(([slug, num]) => [num, slug]));
+
+function resolveStageNumber(stageParam) {
+  if (!stageParam) return null;
+
+  const asNumber = Number(stageParam);
+  if (!Number.isNaN(asNumber) && Number.isInteger(asNumber) && asNumber > 0) {
+    return asNumber;
+  }
+
+  const lower = String(stageParam).toLowerCase();
+  if (STAGE_SLUGS[lower]) {
+    return STAGE_SLUGS[lower];
+  }
+
+  return null;
+}
+
 exports.createProject = async (req, res, next) => {
   try {
     const { projectType, templateId } = req.body;
@@ -86,10 +111,15 @@ exports.getProgress = async (req, res, next) => {
 exports.submitCodeForReview = async (req, res, next) => {
   try {
     const projectId = req.params.id;
-    const stageNumber = parseInt(req.params.stage, 10);
-    const { codeSnippet, files = [], context = {} } = req.body;
+    const stageNumber = resolveStageNumber(req.params.stage);
+    const { codeSnippet, code, files = [], context = {} } = req.body;
+    const resolvedCodeSnippet = (codeSnippet || code || '').trim();
 
-    if (!codeSnippet) {
+    if (!stageNumber) {
+      return res.status(400).json({ success: false, message: 'Invalid stage identifier' });
+    }
+
+    if (!resolvedCodeSnippet) {
       return res.status(400).json({ success: false, message: 'codeSnippet is required' });
     }
 
@@ -104,7 +134,7 @@ exports.submitCodeForReview = async (req, res, next) => {
       projectId,
       stageNumber,
       userId: req.user._id,
-      codeSnippet,
+      codeSnippet: resolvedCodeSnippet,
       files,
       status: 'pending',
       attempt: (project.stageStatus.find(s => s.stageNumber === stageNumber)?.attempts || 0) + 1,
@@ -113,13 +143,15 @@ exports.submitCodeForReview = async (req, res, next) => {
     await submission.save();
 
     const stageDefinition = await Stage.findOne({ projectType: project.projectType, stageNumber });
+    const stageName = STAGE_NAMES_BY_NUMBER[stageNumber] || `stage-${stageNumber}`;
 
     const aiPayload = {
-      codeSnippet,
-      stage: stageDefinition?.title || `Stage ${stageNumber}`,
+      codeSnippet: resolvedCodeSnippet,
+      stage: stageDefinition?.title || stageName,
       projectContext: {
         id: projectId,
         projectType: project.projectType,
+        stage: stageName,
         ...context,
       },
       requirements: stageDefinition?.requirements || [],
@@ -165,8 +197,9 @@ exports.submitCodeForReview = async (req, res, next) => {
         project.completedStages.push(stageNumber);
       }
 
+      const totalStages = project.stageStatus.length || TOTAL_STAGES;
       project.currentStage = stageNumber + 1;
-      project.progressPercentage = Math.round((project.completedStages.length / TOTAL_STAGES) * 100);
+      project.progressPercentage = Math.round((project.completedStages.length / totalStages) * 100);
 
       // unlock next stage in status map
       const next = project.stageStatus.find((s) => s.stageNumber === project.currentStage);
@@ -199,7 +232,10 @@ exports.submitCodeForReview = async (req, res, next) => {
 exports.getStageSubmissions = async (req, res, next) => {
   try {
     const projectId = req.params.id;
-    const stageNumber = parseInt(req.params.stage, 10);
+    const stageNumber = resolveStageNumber(req.params.stage);
+    if (!stageNumber) {
+      return res.status(400).json({ success: false, message: 'Invalid stage identifier' });
+    }
     const project = await Project.findOne({ _id: projectId, userId: req.user._id });
     if (!project) return res.status(404).json({ success: false, message: 'Project not found' });
 
@@ -213,7 +249,10 @@ exports.getStageSubmissions = async (req, res, next) => {
 exports.retryStage = async (req, res, next) => {
   try {
     const projectId = req.params.id;
-    const stageNumber = parseInt(req.params.stage, 10);
+    const stageNumber = resolveStageNumber(req.params.stage);
+    if (!stageNumber) {
+      return res.status(400).json({ success: false, message: 'Invalid stage identifier' });
+    }
     const project = await Project.findOne({ _id: projectId, userId: req.user._id });
     if (!project) return res.status(404).json({ success: false, message: 'Project not found' });
 

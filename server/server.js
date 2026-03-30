@@ -7,7 +7,8 @@ const dotenv = require('dotenv');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 const hpp = require('hpp');
-const xssClean = require('xss-clean');
+const cookieParser = require('cookie-parser');
+// const xssClean = require('xss-clean'); // incompatible with Node.js 20+ (req.query is read-only)
 
 
 const authRoutes = require('./routes/authRoutes');
@@ -27,6 +28,17 @@ const app = express();
 // Light middleware to avoid Node 20 query-property immutability issues.
 app.use(express.json({ limit: '30kb' }));
 app.use(express.urlencoded({ extended: true, limit: '30kb' }));
+app.use(cookieParser()); // Parse cookies
+
+// Security hardening
+app.use(helmet());
+// app.use(hpp()); // Disabled: causes issues with req.query
+// xss-clean package broke with Node 20+ (Cannot set property query)... removing it for compatibility
+// app.use(xssClean());
+
+// CORS for client<->server communication
+const CLIENT_URL = process.env.CLIENT_URL || 'http://localhost:3000';
+app.use(cors({ origin: CLIENT_URL, credentials: true }));
 
 const limiter = rateLimit({
   windowMs: 60 * 1000,
@@ -65,6 +77,17 @@ app.use('/api/projects', projectRoutes);
 // Template Routes (public + admin)
 app.use('/api', templateRoutes);
 
+// Health & Diagnostic Endpoint
+app.get('/api/health', (req, res) => {
+  const { validateApiConfig } = require('./src/services/ai.service');
+  const config = validateApiConfig();
+  res.json({
+    status: 'ok',
+    timestamp: new Date().toISOString(),
+    ai: config,
+  });
+});
+
 // Stage Templates
 const stageRoutes = require('./routes/stage.routes');
 app.use('/api/stages', stageRoutes);
@@ -74,7 +97,7 @@ const errorMiddleware = require('./middleware/errorMiddleware');
 app.use(errorMiddleware);
 
 // 5. SERVER STARTUP
-const PORT = process.env.PORT || 5000;
+const PORT = process.env.PORT || 5001;
 const server = app.listen(PORT, () => {
   console.log(` Server is running on http://localhost:${PORT}`);
 }).on('error', (err) => {

@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-const baseURL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api';
+const baseURL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5002/api';
 
 const api = axios.create({
   baseURL,
@@ -24,13 +24,19 @@ api.interceptors.response.use(
     const originalRequest = error.config;
     if (error.response?.status === 401 && !originalRequest._retry) {
       originalRequest._retry = true;
-      const refreshToken = localStorage.getItem('refreshToken');
-      if (refreshToken) {
-        const r = await api.post('/auth/refresh', { refreshToken });
+      try {
+        const csrfToken = localStorage.getItem('csrfToken');
+        const r = await api.post('/auth/refresh', { csrfToken });
         localStorage.setItem('accessToken', r.data.accessToken);
-        localStorage.setItem('refreshToken', r.data.refreshToken);
         originalRequest.headers.Authorization = `Bearer ${r.data.accessToken}`;
         return api(originalRequest);
+      } catch (refreshError) {
+        // Refresh failed, logout
+        localStorage.removeItem('accessToken');
+        localStorage.removeItem('csrfToken');
+        localStorage.removeItem('user');
+        window.location.href = '/login';
+        return Promise.reject(refreshError);
       }
     }
     return Promise.reject(error);
@@ -43,24 +49,28 @@ export async function register(data) {
 
 export async function login(data) {
   const res = await api.post('/auth/login', data);
-  if (res.data?.accessToken && res.data?.refreshToken) {
+  if (res.data?.accessToken && res.data?.user) {
     localStorage.setItem('accessToken', res.data.accessToken);
-    localStorage.setItem('refreshToken', res.data.refreshToken);
+    localStorage.setItem('csrfToken', res.data.csrfToken);
     localStorage.setItem('user', JSON.stringify(res.data.user));
   }
   return res;
 }
 
 export async function logout() {
-  const refreshToken = localStorage.getItem('refreshToken');
-  await api.post('/auth/logout', { refreshToken });
+  const csrfToken = localStorage.getItem('csrfToken');
+  await api.post('/auth/logout', { csrfToken });
   localStorage.removeItem('accessToken');
-  localStorage.removeItem('refreshToken');
+  localStorage.removeItem('csrfToken');
   localStorage.removeItem('user');
 }
 
 export async function getMe() {
   return api.get('/auth/me');
+}
+
+export async function listTemplates() {
+  return api.get('/templates');
 }
 
 export async function listProjects() {

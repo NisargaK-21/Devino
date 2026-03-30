@@ -1,4 +1,5 @@
 const User = require('../models/User');
+const TokenBlacklist = require('../models/TokenBlacklist');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
@@ -53,9 +54,26 @@ exports.login = async (req, res, next) => {
         user.lastLoginAt = new Date();
         await user.save();
 
+        // Set refresh token as httpOnly cookie
+        res.cookie('refreshToken', refreshToken, {
+            httpOnly: true,
+            secure: process.env.NODE_ENV === 'production', // secure in prod
+            sameSite: 'strict',
+            maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+        });
+
+        // Generate CSRF token
+        const csrfToken = crypto.randomBytes(32).toString('hex');
+        res.cookie('csrfToken', csrfToken, {
+            httpOnly: false, // accessible to JS for sending in requests
+            secure: process.env.NODE_ENV === 'production',
+            sameSite: 'strict',
+            maxAge: 7 * 24 * 60 * 60 * 1000,
+        });
+
         res.json({
           accessToken,
-          refreshToken,
+          csrfToken, // send to frontend to store
           user: {
             id: user._id,
             username: user.username,
@@ -70,31 +88,54 @@ exports.login = async (req, res, next) => {
 
 exports.refreshToken = async (req, res, next) => {
   try {
-    const { refreshToken } = req.body;
-    if (!refreshToken) return res.status(400).json({ message: 'Refresh token missing' });
+    const refreshToken = req.cookies.refreshToken;
+    const csrfToken = req.body.csrfToken;
+    const cookieCsrf = req.cookies.csrfToken;
 
-    const user = await User.findOne({});
-    // find user by refresh token hash using bcrypt compare on all users is not efficient; use explicit token store in DB in production.
-    const users = await User.find({ refreshTokenHash: { $exists: true, $ne: null } });
-    let matchedUser = null;
-    for (const u of users) {
-      const match = await bcrypt.compare(refreshToken, u.refreshTokenHash);
-      if (match) {
-        matchedUser = u;
-        break;
-      }
+    if (!csrfToken || csrfToken !== cookieCsrf) {
+      return res.status(403).json({ message: 'Invalid CSRF token' });
     }
 
-    if (!matchedUser) {
+    if (!refreshToken) return res.status(400).json({ message: 'Refresh token missing' });
+
+    const user = await User.findOne({ refreshTokenHash: { $exists: true, $ne: null } });
+    if (!user) {
       return res.status(401).json({ message: 'Invalid refresh token' });
     }
 
-    const accessToken = generateAccessToken(matchedUser);
-    const newRefreshToken = generateRefreshToken();
-    matchedUser.refreshTokenHash = await bcrypt.hash(newRefreshToken, 10);
-    await matchedUser.save();
+    const match = await bcrypt.compare(refreshToken, user.refreshTokenHash);
+    if (!match) {
+      return res.status(401).json({ message: 'Invalid refresh token' });
+    }
 
-    res.json({ accessToken, refreshToken: newRefreshToken });
+    // Check if refresh token is blacklisted
+    const blacklisted = await TokenBlacklist.findOne({ token: refreshToken, type: 'refresh' });
+    if (blacklisted) {
+      return res.status(401).json({ message: 'Token has been invalidated' });
+    }
+
+    const accessToken = generateAccessToken(user);
+    const newRefreshToken = generateRefreshToken();
+
+    // Blacklist old refresh token
+    await TokenBlacklist.create({
+      token: refreshToken,
+      type: 'refresh',
+      expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days
+    });
+
+    user.refreshTokenHash = await bcrypt.hash(newRefreshToken, 10);
+    await user.save();
+
+    // Set new refresh token cookie
+    res.cookie('refreshToken', newRefreshToken, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'strict',
+        maxAge: 7 * 24 * 60 * 60 * 1000,
+    });
+
+    res.json({ accessToken });
   } catch (err) {
     next(err);
   }
@@ -102,26 +143,46 @@ exports.refreshToken = async (req, res, next) => {
 
 exports.logout = async (req, res, next) => {
   try {
-    const { refreshToken } = req.body;
-    if (!refreshToken) return res.status(400).json({ message: 'Refresh token missing' });
+    const refreshToken = req.cookies.refreshToken;
+    const csrfToken = req.body.csrfToken;
+    const cookieCsrf = req.cookies.csrfToken;
 
-    const users = await User.find({ refreshTokenHash: { $exists: true, $ne: null } });
-    let matchedUser = null;
+    if (!csrfToken || csrfToken !== cookieCsrf) {
+      return res.status(403).json({ message: 'Invalid CSRF token' });
+    }
 
-    for (const u of users) {
-      const match = await bcrypt.compare(refreshToken, u.refreshTokenHash);
-      if (match) {
-        matchedUser = u;
-        break;
+    if (refreshToken) {
+      // Blacklist the refresh token
+      await TokenBlacklist.create({
+        token: refreshToken,
+        type: 'refresh',
+        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+      });
+
+      // Find and clear user's refresh token hash
+      const users = await User.find({ refreshTokenHash: { $exists: true, $ne: null } });
+      for (const u of users) {
+        const match = await bcrypt.compare(refreshToken, u.refreshTokenHash);
+        if (match) {
+          u.refreshTokenHash = null;
+          await u.save();
+          break;
+        }
       }
     }
 
-    if (!matchedUser) {
-      return res.status(200).json({ message: 'Logged out' });
-    }
+    // Clear cookies
+    res.clearCookie('refreshToken', {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'strict',
+    });
+    res.clearCookie('csrfToken', {
+      httpOnly: false,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'strict',
+    });
 
-    matchedUser.refreshTokenHash = null;
-    await matchedUser.save();
     res.json({ message: 'Logged out successfully' });
   } catch (err) {
     next(err);
