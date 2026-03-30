@@ -1,4 +1,95 @@
 
+// const path = require('path');
+// const express = require('express');
+// const mongoose = require('mongoose');
+// const cors = require('cors');
+// const dotenv = require('dotenv');
+// const helmet = require('helmet');
+// const rateLimit = require('express-rate-limit');
+// const hpp = require('hpp');
+// const xssClean = require('xss-clean');
+
+
+// const authRoutes = require('./routes/authRoutes');
+// const projectRoutes = require('./routes/project.routes');
+// const templateRoutes = require('./routes/template.routes');
+
+
+// const envFile = path.resolve(__dirname, '.env');
+// dotenv.config({ path: envFile });
+// console.log('Server cwd:', process.cwd());
+// console.log('Loading env from:', envFile);
+// console.log('MONGODB_URI exists:', !!process.env.MONGODB_URI);
+
+// const app = express();
+
+// // 1. GLOBAL MIDDLEWARE
+// // Light middleware to avoid Node 20 query-property immutability issues.
+// app.use(express.json({ limit: '30kb' }));
+// app.use(express.urlencoded({ extended: true, limit: '30kb' }));
+
+// const limiter = rateLimit({
+//   windowMs: 60 * 1000,
+//   max: 100,
+//   standardHeaders: true,
+//   legacyHeaders: false,
+//   message: { success: false, message: 'Too many requests, please try again later.' },
+// });
+// app.use(limiter);
+
+// // 2. DATABASE CONNECTION
+// // This handles both MONGODB_URI and MONGO_URI to prevent connection errors
+// const dbURI = process.env.MONGODB_URI || process.env.MONGO_URI;
+// if (!dbURI) {
+//   console.error(' MongoDB URI missing. Set MONGODB_URI or MONGO_URI in server/.env');
+//   process.exit(1);
+// }
+
+// mongoose
+//   .connect(dbURI)
+//   .then(() => console.log(" MongoDB Connected successfully"))
+//   .catch((err) => {
+//     console.error(" MongoDB connection error:", err);
+//     process.exit(1);
+//   });
+
+// // 3. ROUTE DEFINITIONS
+// app.get('/api/health', (req, res) => res.json({ success: true, status: 'ok', time: new Date().toISOString() }));
+
+// // Authentication Routes (Signup, Login, etc.)
+// app.use('/api/auth', authRoutes);
+
+// // Project Routes (Create, View, Delete projects)
+// app.use('/api/projects', projectRoutes);
+
+// // Template Routes (public + admin)
+// app.use('/api', templateRoutes);
+
+// // Stage Templates
+// const stageRoutes = require('./routes/stage.routes');
+// app.use('/api/stages', stageRoutes);
+
+// // 4. GLOBAL ERROR HANDLING
+// const errorMiddleware = require('./middleware/errorMiddleware');
+// app.use(errorMiddleware);
+
+// // 5. SERVER STARTUP
+// const PORT = process.env.PORT || 5000;
+// const server = app.listen(PORT, () => {
+//   console.log(` Server is running on http://localhost:${PORT}`);
+// }).on('error', (err) => {
+//   console.error('Server startup error:', err);
+//   process.exit(1);
+// });
+
+// // Handle unhandled promise rejections
+// process.on('unhandledRejection', (err, promise) => {
+//   console.error('Unhandled Rejection:', err.message);
+//   server.close(() => {
+//     process.exit(1);
+//   });
+// });
+
 const path = require('path');
 const express = require('express');
 const mongoose = require('mongoose');
@@ -9,25 +100,39 @@ const rateLimit = require('express-rate-limit');
 const hpp = require('hpp');
 const xssClean = require('xss-clean');
 
-
 const authRoutes = require('./routes/authRoutes');
 const projectRoutes = require('./routes/project.routes');
 const templateRoutes = require('./routes/template.routes');
 
-
 const envFile = path.resolve(__dirname, '.env');
 dotenv.config({ path: envFile });
+
 console.log('Server cwd:', process.cwd());
 console.log('Loading env from:', envFile);
 console.log('MONGODB_URI exists:', !!process.env.MONGODB_URI);
 
 const app = express();
 
-// 1. GLOBAL MIDDLEWARE
-// Light middleware to avoid Node 20 query-property immutability issues.
+
+// 🔥 1. CORS CONFIG (FIXED)
+app.use(cors({
+  origin: "http://localhost:3000",
+  credentials: true
+}));
+
+
+// 🔥 2. SECURITY MIDDLEWARE (optional but good)
+app.use(helmet());
+app.use(hpp());
+app.use(xssClean());
+
+
+// 🔥 3. BODY PARSING
 app.use(express.json({ limit: '30kb' }));
 app.use(express.urlencoded({ extended: true, limit: '30kb' }));
 
+
+// 🔥 4. RATE LIMITING
 const limiter = rateLimit({
   windowMs: 60 * 1000,
   max: 100,
@@ -37,56 +142,57 @@ const limiter = rateLimit({
 });
 app.use(limiter);
 
-// 2. DATABASE CONNECTION
-// This handles both MONGODB_URI and MONGO_URI to prevent connection errors
+
+// 🔥 5. DATABASE CONNECTION
 const dbURI = process.env.MONGODB_URI || process.env.MONGO_URI;
+
 if (!dbURI) {
-  console.error(' MongoDB URI missing. Set MONGODB_URI or MONGO_URI in server/.env');
+  console.error('MongoDB URI missing. Set MONGODB_URI or MONGO_URI in server/.env');
   process.exit(1);
 }
 
 mongoose
   .connect(dbURI)
-  .then(() => console.log(" MongoDB Connected successfully"))
+  .then(() => console.log("MongoDB Connected successfully"))
   .catch((err) => {
-    console.error(" MongoDB connection error:", err);
+    console.error("MongoDB connection error:", err);
     process.exit(1);
   });
 
-// 3. ROUTE DEFINITIONS
-app.get('/api/health', (req, res) => res.json({ success: true, status: 'ok', time: new Date().toISOString() }));
 
-// Authentication Routes (Signup, Login, etc.)
+// 🔥 6. ROUTES
+app.get('/api/health', (req, res) =>
+  res.json({ success: true, status: 'ok', time: new Date().toISOString() })
+);
+
 app.use('/api/auth', authRoutes);
-
-// Project Routes (Create, View, Delete projects)
 app.use('/api/projects', projectRoutes);
-
-// Template Routes (public + admin)
 app.use('/api', templateRoutes);
 
-// Stage Templates
 const stageRoutes = require('./routes/stage.routes');
 app.use('/api/stages', stageRoutes);
 
-// 4. GLOBAL ERROR HANDLING
+
+// 🔥 7. ERROR HANDLING
 const errorMiddleware = require('./middleware/errorMiddleware');
 app.use(errorMiddleware);
 
-// 5. SERVER STARTUP
+
+// 🔥 8. SERVER START
 const PORT = process.env.PORT || 5000;
+
 const server = app.listen(PORT, () => {
-  console.log(` Server is running on http://localhost:${PORT}`);
+  console.log(`Server is running on http://localhost:${PORT}`);
 }).on('error', (err) => {
   console.error('Server startup error:', err);
   process.exit(1);
 });
 
-// Handle unhandled promise rejections
-process.on('unhandledRejection', (err, promise) => {
+
+// 🔥 9. HANDLE PROMISE ERRORS
+process.on('unhandledRejection', (err) => {
   console.error('Unhandled Rejection:', err.message);
   server.close(() => {
     process.exit(1);
   });
 });
-
