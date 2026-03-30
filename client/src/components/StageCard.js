@@ -113,6 +113,15 @@ export default function StageCard({ stage, projectId, isLocked, isCurrent }) {
     return <div className="p-6 border-2 border-zinc-900 animate-pulse bg-zinc-950">Loading...</div>;
   }
 
+  const slugFromIcon = {
+    '01': 'frontend',
+    '02': 'backend',
+    '03': 'database',
+    '04': 'auth',
+    '05': 'deploy',
+  };
+  const stageSlug = stage.slug || slugFromIcon[stage.icon] || stage.id || stage.title?.toLowerCase().replace(/\s+/g, '-') || 'frontend';
+
   return (
     <div className={`p-6 border-2 transition-all duration-500 rounded-lg bg-zinc-950 
       ${isLocked ? 'border-zinc-900 opacity-25' : 'border-red-900'} 
@@ -121,7 +130,7 @@ export default function StageCard({ stage, projectId, isLocked, isCurrent }) {
       <h3 className="text-white font-horror text-xl mb-4">{stage.name}</h3>
 
       {!isLocked ? (
-        <Link href={`/projects/${projectId}/stages/${stage.id}/submit`}>
+        <Link href={`/projects/${projectId}/stage/${stageSlug}`}>
           <button className="w-full py-2 bg-red-700 hover:bg-red-600 text-white font-bold uppercase text-[10px] tracking-widest">
             {isCurrent ? "Enter the Abyss" : "Review"}
           </button>

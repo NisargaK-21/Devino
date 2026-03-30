@@ -1,15 +1,29 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { createProject } from "../../../services/api";
+import { createProject, listTemplates } from "../../../services/api";
 
 export default function CreateProject() {
   const router = useRouter();
   const [projectType, setProjectType] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [templates, setTemplates] = useState([]);
 
-  const templates = [
+  useEffect(() => {
+    const fetchTemplates = async () => {
+      try {
+        const res = await listTemplates();
+        setTemplates(res.data.templates || []);
+      } catch (err) {
+        console.error("Failed to fetch templates:", err);
+        setError("Failed to load templates");
+      }
+    };
+    fetchTemplates();
+  }, []);
+
+  const templateOptions = [
     { id: "portfolio", label: "Portfolio Website", desc: "Personal portfolio with projects showcase" },
     { id: "restaurant", label: "Restaurant Website", desc: "Menu display and reservation system" },
     { id: "ecommerce", label: "E-Commerce Store", desc: "Product catalog and shopping cart" },
@@ -20,10 +34,14 @@ export default function CreateProject() {
     setLoading(true);
     setError("");
     try {
-      // For now, use the first stage of the selected project type as templateId
-      // This will be updated when issue #18 provides dynamic templates
-      const templateId = `${projectType}-stage-1`;
-      const res = await createProject({ projectType, templateId });
+      // Find the template that matches the selected project type
+      const selectedTemplate = templates.find(t => t.projectType === projectType);
+      if (!selectedTemplate) {
+        setError("No template found for the selected project type");
+        return;
+      }
+
+      const res = await createProject({ projectType, templateId: selectedTemplate._id });
       router.push(`/projects/${res.data.project._id}`);
     } catch (err) {
       setError(err.response?.data?.message || "Failed to create project");
@@ -47,7 +65,7 @@ export default function CreateProject() {
 
         {/* Templates */}
         <div style={{ display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:16, marginBottom:40 }}>
-          {templates.map(t => (
+          {templateOptions.map(t => (
             <div key={t.id}
               onClick={() => setProjectType(t.id)}
               style={{

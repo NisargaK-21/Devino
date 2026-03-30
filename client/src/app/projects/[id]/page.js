@@ -27,12 +27,14 @@ export default function ProjectDetail() {
     fetch();
   }, [id]);
 
-  const getStageStatus = (stage) => {
+  const getStageStatus = (stageSlug) => {
     if (!project) return "locked";
-    const currentIndex = STAGES.indexOf(project.currentStage);
-    const stageIndex = STAGES.indexOf(stage);
-    if (stageIndex < currentIndex) return "completed";
-    if (stageIndex === currentIndex) return "current";
+    const stageNumber = STAGES.indexOf(stageSlug) + 1;
+    const currentStage = project.currentStage;
+    if (stageNumber === 0) return "locked";
+    if (stageNumber < currentStage) return "completed";
+    if (stageNumber === currentStage) return "current";
+    if (currentStage > STAGES.length) return "completed";
     return "locked";
   };
 

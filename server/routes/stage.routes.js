@@ -3,8 +3,7 @@ const router = express.Router();
 const Stage = require('../models/Stage');
 const { authenticate } = require('../middleware/authMiddleware');
 
-router.use(authenticate);
-
+// Stages can be publicly listed for frontend initialization (no auth required)
 router.get('/', async (req, res, next) => {
   try {
     const stages = await Stage.find().sort({ projectType:1, stageNumber:1 });

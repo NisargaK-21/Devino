@@ -23,9 +23,10 @@ export default function StagePage() {
     setError("");
     setFeedback(null);
     try {
-      const res = await submitStageCode(id, stage, { code });
-      setFeedback(res.data.feedback);
-      setApproved(res.data.approved);
+      const res = await submitStageCode(id, stage, { codeSnippet: code, files: [], context: {} });
+      const aiResult = res.data.aiResult || (res.data.submission && res.data.submission.aiResult) || {};
+      setFeedback(aiResult.feedback || 'AI returned no feedback yet, please try again.');
+      setApproved(Boolean(aiResult.approved));
     } catch(err) {
       setError(err.response?.data?.message || "Submission failed. Try again.");
     } finally {
